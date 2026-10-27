@@ -80,6 +80,7 @@ void runMainLoop(
 
   std::unordered_map<std::string, std::unique_ptr<SoundVoicePool>> soundPools;
   std::vector<SoundVoicePool*> keyToPool(1024, nullptr);
+  SoundVoicePool *defaultPool = nullptr;
 
   if (!analyticsOnly) {
     setVolume(volume);
@@ -133,6 +134,23 @@ void runMainLoop(
         }
       }
     }
+
+    // Find a default fallback pool for any keys not explicitly defined in the soundpack
+    const int candidateFallbacks[] = {57, 28, 30, 42, 14, 15}; // Space, Enter, A, LeftShift, Backspace, Tab
+    for (int cand : candidateFallbacks) {
+      if (cand < (int)keyToPool.size() && keyToPool[cand] != nullptr) {
+        defaultPool = keyToPool[cand];
+        break;
+      }
+    }
+    if (!defaultPool) {
+      for (const auto &pair : soundPools) {
+        if (pair.second && pair.second->voiceCount > 0) {
+          defaultPool = pair.second.get();
+          break;
+        }
+      }
+    }
   }
 
   AnalyticsTracker analytics;
@@ -152,8 +170,14 @@ void runMainLoop(
       while (read(fd, &ev, sizeof(ev)) == static_cast<ssize_t>(sizeof(ev))) {
         if (ev.type == EV_KEY && ev.value == 1) {
           // Play sound FIRST for lowest possible latency!
-          if (!analyticsOnly && static_cast<size_t>(ev.code) < keyToPool.size()) {
-            SoundVoicePool *pool = keyToPool[ev.code];
+          if (!analyticsOnly) {
+            SoundVoicePool *pool = nullptr;
+            if (static_cast<size_t>(ev.code) < keyToPool.size()) {
+              pool = keyToPool[ev.code];
+            }
+            if (!pool) {
+              pool = defaultPool;
+            }
             if (pool) {
               pool->play();
             }
